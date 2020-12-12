@@ -1,0 +1,385 @@
+---
+title: "Final Project"
+output: 
+    flexdashboard::flex_dashboard:
+        orientation: columns
+        vertical_layout: scroll
+    html_document: default
+---
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+library(readxl)
+library(unpivotr)
+library(tidyverse)
+library(tidyr)
+library(htmlwidgets)
+library(htmltools)
+library(networkD3)
+library(ggplot2)
+library(ggbeeswarm)
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(sf)
+library(rworldmap)
+library(hrbrthemes)
+library(wordcloud)
+library(wordcloud2)
+library(RColorBrewer)
+library(tm)
+
+
+```
+
+
+
+```{r}
+#read data
+df = read.csv('deep_sea_corals.csv')
+
+```
+
+```{r}
+# clean data
+
+df$ObservationDate <- as.character(df$ObservationDate)
+df <- df[str_detect(df$ObservationDate, "-"),]
+df$ObservationDate=format(as.Date(df$ObservationDate),"%Y-%m")
+df <- df[complete.cases(df[,7]),]
+```
+
+
+
+
+EDA
+=======================================================================
+
+
+
+Column {data-width=400}
+-------------------------------------
+- To find the woking range of each equipments, a plot of five main equipments respect to the depth of water of coral found is made. 
+
+- From the plot, it is clearly that most corals are found between 0m - 1000m. 
+
+- Among all devices, the ROV has the widest range of finding corals. 
+
+- Besides, most corals found in deep sea are detected by the ROV.
+
+```{r}
+# clean data
+violin<-df[,c(10,18)]
+violin <- na.omit(violin)
+#summary(violin)
+
+violin = filter(violin, SamplingEquipment == c('ROV','submersible','trawl','towed camera', 'longline'))
+```
+
+
+### Sea coral found by 5 main equipments with depth
+```{r fig.height=5, fig.width=8}
+ggplot(violin, aes(x = SamplingEquipment, y = DepthInMeters)) +
+     geom_boxplot((aes(fill = factor(SamplingEquipment))),
+                outlier.size = 2, 
+                colour = "black",
+                na.rm = TRUE,
+                alpha = 0.2,
+                width = 0.55,
+                outlier.shape = NA,
+                show.legend = FALSE) + 
+    geom_violin((aes(fill = factor(SamplingEquipment))),
+                color = NA,
+                alpha = 0.5,
+                na.rm = TRUE,
+                width = 1.3,
+                show.legend = FALSE)+
+  coord_cartesian(ylim = c(-500, 3000))+
+  ggtitle("Sea coral found by 5 main equipments with depth")
+```
+
+
+
+
+```{r}
+# clean data
+violin_coral<-df[,c(4,10)]
+violin_coral <- na.omit(violin_coral)
+#summary(violin_coral)
+
+violin_coral = filter(violin_coral, VernacularNameCategory == c('gorgonian coral','sponge (unspecified)','sea pen','glass sponge', 'soft coral','demosponge'))
+```
+
+
+
+
+
+
+
+
+Column {data-width=400}
+-------------------------------------
+- The plot below shows the depth of main categories of corals founded. 
+
+- From the plot, we can find that eccept demosponge which are found near sea level, all other are mainly found between 400m- 1500m. 
+
+- The gorgonian coral has the widedst range of distribution while the demosponge has the shortest.
+
+
+### Sea coral found by main types with depth
+
+```{r fig.height=5, fig.width=8 }
+ggplot(violin_coral, aes(x = VernacularNameCategory, y = DepthInMeters)) +
+     geom_boxplot((aes(fill = factor(VernacularNameCategory))),
+                outlier.size = 2, 
+                colour = "black",
+                na.rm = TRUE,
+                alpha = 0.2,
+                width = 0.5,
+                outlier.shape = NA,
+                show.legend = FALSE) + 
+    geom_violin((aes(fill = factor(VernacularNameCategory))),
+                color = NA,
+                alpha = 0.55,
+                na.rm = TRUE,
+                width = 1.3,
+                show.legend = FALSE)+
+  coord_cartesian(ylim = c(-500, 3000))+
+  ggtitle("Sea coral found by main types with depth")
+```
+
+
+```{r}
+temp <- data.frame(df$VernacularNameCategory,0)
+temp <- temp %>%
+  group_by(df.VernacularNameCategory) %>%
+  count(df.VernacularNameCategory)
+temp <- temp[order(-temp$n),]
+names(temp)<- c('Category','Counts')
+temp<-na.omit(temp)
+```
+
+
+Column {data-width=400}
+-------------------------------------
+- Plot below shows the founded number of each corals. 
+
+- The gorgonian coral has the largest number among all corals.
+
+- Most corals are gorgonian coral,sponge (unspecified),sea pen,glass sponge, soft coral and demosponge, and some of them are showed in previous image.
+
+### World Sea Coral number
+```{r}
+
+temp %>%
+  ggplot( aes(x=reorder(Category,Counts), y=Counts)) +
+    geom_bar(stat="identity", fill="#f68060", alpha=.6, width=.4) +
+    coord_flip() +
+     xlab("Coral Category") +
+    theme_bw()+
+    ggtitle("World Sea Coral number")
+
+```
+
+
+
+
+
+
+Sea Coral Map
+=======================================================================
+- The plot is a world map of position of main coral categories.
+
+- Most corals are found near the coast espacially the West and East coast of North Amarican.
+
+- Few corals are found Indian Ocean.
+
+- The coast of Alaska contains huge amount of the different corals espacially the soft corals.
+
+- Gorgonian coral which is the greatest in number has the most diverse distribution arong all the world.
+
+## Geo plot of different sea coral
+
+```{r}
+#load map data
+world <- ne_countries(scale = "medium", returnclass = "sf")
+
+```
+
+```{r}
+#change data type to numeric
+df$longitude <- as.character(df$longitude)
+df$latitude <- as.character(df$latitude)
+
+df$longitude <- as.numeric(df$longitude)
+df$latitude <- as.numeric(df$latitude)
+```
+
+```{r}
+#keep commen category and change others to 'Others'
+df_map <- df[,c(4,8,9)]
+
+df_map = filter(df_map, VernacularNameCategory%in%c('gorgonian coral','sponge (unspecified)','sea pen','glass sponge', 'soft coral','demosponge'))
+
+```
+
+
+```{r fig.height=10, fig.width=20}
+#plot geo map
+ggplot(data = world) +
+    geom_sf(color = "black", fill = "lightblue") +
+    xlab("Longitude") + ylab("Latitude") +
+    ggtitle("World Sea Coral map")+
+    geom_point(data = df_map, aes(x = longitude, y = latitude, fill = factor(VernacularNameCategory) ),shape = 23)+
+  scale_fill_discrete(name="Coral Categories")
+```
+
+
+
+```{r}
+#set bins
+net_df <- df[,c(4,10)]
+#summary(net_df$DepthInMeters)
+net_df$Depth <- NA
+net_df$Depth[net_df$DepthInMeters>=0]<-'0-400'
+net_df$Depth[net_df$DepthInMeters>400]<-'401-800'
+net_df$Depth[net_df$DepthInMeters>800]<-'801-1200'
+net_df$Depth[net_df$DepthInMeters>1200]<-'1201-1600'
+net_df$Depth[net_df$DepthInMeters>1600]<-'1601-2000'
+net_df$Depth[net_df$DepthInMeters>2000]<-'>2000'
+net_df<-net_df[,-2]
+names(net_df)=c('Category','Depth')
+```
+
+
+
+```{r}
+# groupby depth and count
+net_df$Category<-as.character(net_df$Category)
+net_df<-net_df %>% group_by(Category) %>% count(Depth)
+
+net_df = filter(net_df, Category%in%c('gorgonian coral','sponge (unspecified)','sea pen','glass sponge', 'soft coral','demosponge'))
+net_df <- na.omit(net_df)
+
+# create index
+nodes <- data.frame(name=c(as.character(net_df$Category), as.character(net_df$Depth)) %>%
+                      unique())
+net_df$IDCategory=match(net_df$Category, nodes$name)-1 
+net_df$IDDepth=match(net_df$Depth, nodes$name)-1
+
+```
+
+Sankey plot (network)
+=======================================================================
+- The plot is an sankey network bwteen categoral of corals and the depth of where they were found.
+- The plot can be draged or clicked by mouse.
+- Most corals are detected between 0m - 400m below the sea level.
+- Only few corals are found below 2,000m
+
+## Main depth of five main sea corals found
+
+```{r fig.height=15, fig.width=10}
+sankey<-sankeyNetwork(Links = net_df, Nodes = nodes,
+              Source = "IDCategory", Target = "IDDepth",
+              Value = "n", NodeID = "name", 
+              sinksRight=FALSE, nodeWidth=40, fontSize=10, nodePadding=5, height = 400, width = 600
+              )
+
+sankey <- htmlwidgets::prependContent(sankey, htmltools::tags$h1("Main depth of five main sea corals found"))
+
+sankey
+```
+
+Time Series
+=======================================================================
+
+- The plot shows the time series of corals found between 1995 and 2016, where red line is the average and organge tendency.
+
+- We can see that there is an increase of amount around 2016.
+
+- This time series is kind of flat which means the speed of finding new corals is about constant among those years.
+
+## Time Series of Sea Coral from 1990 - 2016
+```{r fig.height=5, fig.width=8}
+
+ts <- data.frame(Time=as.character(df$ObservationDate),counts=0)
+#format it
+ts$Time <- interaction( ts$Time, '-01', sep = "")
+
+
+# find the number of each month
+ts <- ts %>%
+  group_by(Time) %>%
+  count(Time)
+
+ts$Time=as.Date(ts$Time)
+
+```
+
+
+
+```{r fig.height=5, fig.width=8}
+ggplot(ts, aes(x=Time, y=n)) +
+  geom_line(color="#69b3a2") + 
+  xlab("Year")+
+  ylab('Number of Coral found')+
+  theme_ipsum()+
+  ggtitle('Time Series of Sea Coral from 1990')+
+  scale_x_date(limits = c(as.Date(2000-03-01,origin = "1990-01-01"),NA))+
+   stat_smooth(
+  color = "#FC4E07", fill = "#FC4E07",
+  method = "loess"
+  )
+
+  
+
+
+```
+
+
+Word Cloud
+=======================================================================
+
+- The plot is a word cloud shows the repository of corals.(Refresh may be needed)
+  
+- Suprisingly, the most common word is "research" which is an academic word.
+
+- From the word cloud, we can see that most corals are found by those research team, institude and universities.
+
+- Besides, finding a new sea corals depends more on science rather than economy or business.
+
+```{r}
+##Create a vector containing only the text
+text <- df$Repository
+# Create a corpus  
+docs <- Corpus(VectorSource(text))
+```
+
+```{r}
+#remove stop words and others
+docs <- docs %>%
+  tm_map(removeNumbers) %>%
+  tm_map(removePunctuation) %>%
+  tm_map(stripWhitespace)
+docs <- tm_map(docs, content_transformer(tolower))
+docs <- tm_map(docs, removeWords, stopwords("english"))
+```
+
+
+## Word Cloud
+```{r fig.height=5, fig.width=8}
+dtm <- TermDocumentMatrix(docs) 
+matrix <- as.matrix(dtm) 
+words <- sort(rowSums(matrix),decreasing=TRUE) 
+df_wc <- data.frame(word = names(words),freq=words)
+
+# 
+# wordcloud(words = df_wc$word, freq = df_wc$freq, min.freq = 1,
+#            max.words=150, random.order=FALSE, rot.per=0.35,
+#            colors=brewer.pal(8, "Dark2"))
+# 
+
+wordcloud2(df_wc,size=0.8)
+
+```
+
+
